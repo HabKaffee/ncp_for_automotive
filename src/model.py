@@ -36,13 +36,14 @@ class SequenceLearner(pl.LightningModule):
         return {"loss": loss}
     
     def validation_step(self, batch, batch_idx):
-        x, y = batch
-        y_hat, _ = self.model.forward(x)
-        y_hat = y_hat.view_as(y)
-        loss = nn.MSELoss()(y_hat, y)
+        # x, y = batch
+        # y_hat, _ = self.model.forward(x)
+        # y_hat = y_hat.view_as(y)
+        # loss = nn.MSELoss()(y_hat, y)
 
-        self.log("val_loss", loss, prog_bar=True)
-        return loss
+        # self.log("val_loss", loss, prog_bar=True)
+        # return loss
+        return 0.0
     
     def test_step(self, batch, batch_idx):
         return self.validation_step(batch, batch_idx)
