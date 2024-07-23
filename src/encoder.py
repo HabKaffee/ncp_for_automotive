@@ -29,3 +29,15 @@ class EncoderResnet18:
         transformed_image = transformed_image.to(self.device)
         return self.model(transformed_image)
 
+'''
+convolution head
+layer 1: 24 filters, kernel size 5, strides 2
+layer 2: 36 filters, kernel size 5, strides 2
+layer 3: 48 filters, kernel size 3, strides 2
+layer 4: 64 filters, kernel size 3, strides 1
+layer 5: 8 filters, kernel size 3, strides 1
+'''
+
+class Encoder(torch.nn):
+    def __init__(self):
+       self.layer_1 = torch.nn.conv2d() 
