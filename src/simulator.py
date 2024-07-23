@@ -89,7 +89,7 @@ class Simulator:
     
     def default_camera_callback(self, image):
         def get_image_data(image):
-            image.save_to_disk(f"out/%03d.png" % (image.frame % 1000))
+            # image.save_to_disk(f"out/%03d.png" % (image.frame % 1000))
             img = np.array(image.raw_data)
             img = img.reshape((1, self.image_param[0], self.image_param[1], 4))
             img = img[:, :, :, :3] #drop alpha
