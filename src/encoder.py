@@ -39,5 +39,31 @@ layer 5: 8 filters, kernel size 3, strides 1
 '''
 
 class Encoder(torch.nn):
-    def __init__(self):
-       self.layer_1 = torch.nn.conv2d() 
+    def __init__(self, delta1=0.5, delta2=0.5, delta3=0.3):
+        self.layer_1 = torch.nn.Conv2d(200*78*3, 24, kernel_size=5, stride=2)
+        self.layer_2 = torch.nn.Conv2d(24, 36, kernel_size=5, stride=2)
+        self.layer_3 = torch.nn.Conv2d(36, 48, kernel_size=3, stride=2)
+        self.layer_4 = torch.nn.Conv2d(48, 64, kernel_size=3, stride=1)
+        self.layer_5 = torch.nn.Conv2d(64, 8, kernel_size=3, stride=1)
+        self.flatten = torch.nn.Flatten()
+        self.dropout_1 = torch.nn.Dropout(p=delta1)
+        self.fc_1 = torch.nn.Linear() # TODO: make it work U=1000
+        self.dropout_2 = torch.nn.Dropout(p=delta2)
+        self.fc_2 = torch.nn.Linear() # TODO: make it work U=100
+        self.dropout_3 = torch.nn.Dropout(p=delta3)
+        self.fc_3 = torch.nn.Linear() # TODO: make it work U = 10
+
+    def forward(self, x):
+        x = self.layer_1(x)
+        x = self.layer_2(x)
+        x = self.layer_3(x)
+        x = self.layer_4(x)
+        x = self.layer_5(x)
+        x = self.flatten(x)
+        x = self.dropout_1(x)
+        x = self.fc_1(x)
+        x = self.dropout_2(x)
+        x = self.fc_2(x)
+        x = self.dropout_3(x)
+        x = self.fc_3(x)
+        return x
