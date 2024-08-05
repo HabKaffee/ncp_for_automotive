@@ -48,11 +48,11 @@ class Encoder(torch.nn):
         self.layer_5 = torch.nn.Conv2d(64, 8, kernel_size=3, stride=1)
         self.flatten = torch.nn.Flatten()
         self.dropout_1 = torch.nn.Dropout(p=delta1)
-        self.fc_1 = torch.nn.Linear() # TODO: make it work U=1000
+        self.fc_1 = torch.nn.Linear(in_features=,out_features=1000) # TODO: make it work U=1000
         self.dropout_2 = torch.nn.Dropout(p=delta2)
-        self.fc_2 = torch.nn.Linear() # TODO: make it work U=100
+        self.fc_2 = torch.nn.Linear(in_features=, out_features=100) # TODO: make it work U=100
         self.dropout_3 = torch.nn.Dropout(p=delta3)
-        self.fc_3 = torch.nn.Linear() # TODO: make it work U = 10
+        self.fc_3 = torch.nn.Linear(in_features=, out_features=10) # TODO: make it work U = 10
         self.ident_layer = torch.nn.Identity()
 
     def forward(self, x):
