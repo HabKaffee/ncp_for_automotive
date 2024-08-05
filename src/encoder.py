@@ -1,5 +1,6 @@
 import torch
 import torchvision.models as models
+import torch.nn.functional as F
 
 class EncoderResnet18:
     def __init__(self, 
@@ -52,6 +53,7 @@ class Encoder(torch.nn):
         self.fc_2 = torch.nn.Linear() # TODO: make it work U=100
         self.dropout_3 = torch.nn.Dropout(p=delta3)
         self.fc_3 = torch.nn.Linear() # TODO: make it work U = 10
+        self.ident_layer = torch.nn.Identity()
 
     def forward(self, x):
         x = self.layer_1(x)
@@ -62,8 +64,11 @@ class Encoder(torch.nn):
         x = self.flatten(x)
         x = self.dropout_1(x)
         x = self.fc_1(x)
+        x = F.ReLU(x)
         x = self.dropout_2(x)
         x = self.fc_2(x)
+        x = F.ReLU(x)
         x = self.dropout_3(x)
         x = self.fc_3(x)
+        x = self.ident_layer(x)
         return x
