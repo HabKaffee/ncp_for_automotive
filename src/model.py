@@ -1,9 +1,15 @@
 from ncps.torch import LTC
 from ncps.wirings import AutoNCP
+from src.encoder import Encoder, EncoderResnet18
 
+import pandas as pd
 import torch
 import torch.nn as nn
 import torchvision.models as models
+from torchvision.io import read_image
+from torch.utils.data import Dataset
+
+from sklearn.model_selection import train_test_split
 
 # from src.encoder import EncoderResnet18
 
@@ -12,8 +18,10 @@ class Model(nn.Module):
         super().__init__()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         #encoder
-        self.encoder = models.resnet18()
-        self.input_size = 512 #self.encoder.fc.in_features
+        # self.encoder = Encoder()
+        # self.input_size = self.encoder.fc_3.out_features
+        self.encoder = EncoderResnet18().model
+        self.input_size = self.encoder.fc.in_features
         self.encoder_weights = models.ResNet18_Weights.IMAGENET1K_V1
         self.encoder.fc = torch.nn.Identity()
         self.encoder_preprocess = self.encoder_weights.transforms()
@@ -22,17 +30,21 @@ class Model(nn.Module):
         self.units = units
         self.rnn = LTC(self.input_size, AutoNCP(self.units, self.output_size), batch_first=True)
         
+        # self.encoder.to(self.device)
         self.encoder.to(self.device)
         self.rnn.to(self.device)
 
     def extract_features(self, image : torch.Tensor):
-        transformed_image = self.encoder_preprocess(image)
-        self.input_size = transformed_image.shape[1]
-        transformed_image = transformed_image.to(self.device)
+        # transformed_image = self.encoder_preprocess(image)
+        # self.input_size = transformed_image.shape[1]
+        image = image.to(device=self.device, dtype=torch.float)
+        image = image.to(device=self.device, dtype=torch.float)
+        # transformed_image = transformed_image.to(self.device)
         # x = self.encoder(transformed_image)
         # x = self.encoder.segmentation_head(x)
         # x = nn.functional.interpolate(x, scale_factor=32, mode='bilinear', align_corners=False)
-        return self.encoder(transformed_image)
+        return self.encoder(image)
+        # return self.encoder(transformed_image)
 
     def forward(self, input, hx=None, timespans=None):
         features = self.extract_features(input)
@@ -46,8 +58,7 @@ class Model(nn.Module):
         self.load_state_dict(torch.load(state_dict_path))
 
     def train(self):
-        # self.encoder.train()
-        self.encoder.eval()
+        self.encoder.train()
         self.rnn.train()
 
     def eval(self):
@@ -61,6 +72,7 @@ class Trainer:
         self.loss_func = loss_func
         self.optimizer = optimizer
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        torch.set_grad_enabled(True)
         # self.model.to(self.device)
 
     def train(self, data, true_angle):
@@ -73,7 +85,10 @@ class Trainer:
         prediction, _ = self.model.forward(data)
         prediction = prediction[0]#torch.mean(prediction[0])
         # loss = torch.sqrt(self.loss_func(prediction, true_angle))
-        loss = self.loss_func(prediction.item(), true_angle)
+        if isinstance(prediction.item(), float):
+            loss = self.loss_func(torch.tensor(prediction.item()).to(self.device), true_angle)
+        else:
+            loss = self.loss_func(prediction.item(), true_angle)
         
         #back propagation
         loss.backward()
@@ -81,3 +96,11 @@ class Trainer:
         self.optimizer.zero_grad()
         
         print(f'Current loss (*1000) = {loss*1000:.5f}, predicted = {prediction.item():.7f}, true = {true_angle:.7f}')
+
+class TrainingDataset(Dataset):
+    def __init__(self, annotations_file='out/Town01_opt/data.txt', img_dir='out/Town01_opt/', transform=None, target_transform=None):
+        self.image_and_steer = pd.read_csv(annotations_file, sep=":", names=['Image', 'Steer_angle'])
+        self.image_and_steer = self.image_and_steers.groupby(by=['Image']).Steer_angle.mean().reset_index()
+
+    def train_test_split(self):
+        

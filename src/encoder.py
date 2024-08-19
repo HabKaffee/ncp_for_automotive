@@ -15,7 +15,7 @@ class EncoderResnet18:
         #remove fc layer
         # self.model.fc = torch.nn.Identity()
         self.model.fc = torch.nn.Linear(self.model.fc.in_features, 1)
-        # self.model.detection_head = torch.nn.Conv2d(self.output_size, 1, kernel_size=1)
+        # self.model.detection_hdead = torch.nn.Conv2d(self.output_size, 1, kernel_size=1)
         self.model.to(self.device)
         
         self.model.train()
@@ -39,8 +39,9 @@ layer 4: 64 filters, kernel size 3, strides 1
 layer 5: 8 filters, kernel size 3, strides 1
 '''
 
-class Encoder(torch.nn):
+class Encoder(torch.nn.Module):
     def __init__(self, delta1=0.5, delta2=0.5, delta3=0.3):
+        super().__init__()
         self.layer_1 = torch.nn.Conv2d(200*78*3, 24, kernel_size=5, stride=2)
         self.layer_2 = torch.nn.Conv2d(24, 36, kernel_size=5, stride=2)
         self.layer_3 = torch.nn.Conv2d(36, 48, kernel_size=3, stride=2)

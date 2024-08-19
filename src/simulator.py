@@ -36,6 +36,7 @@ class Simulator:
         self.collision_sensor = None
         self.spawn_points = self.world.get_map().get_spawn_points()
         self.sensors_data = SensorsData()
+        self.image_frame = None
         if debug:
             self.world.unload_map_layer(carla.MapLayer.Buildings)
             self.world.unload_map_layer(carla.MapLayer.ParkedVehicles)
@@ -77,7 +78,7 @@ class Simulator:
     def spawn_car_with_camera(self,
                               model : str = 'vehicle.nissan.patrol_2021',
                               rel_coordinates : carla.Location = carla.Location(x=2, z=1.5), 
-                              fov = 90, image_param = (224, 224)):
+                              fov = 90, image_param = (200, 78)):
         self.spawn_vehicle(model)
         self.spawn_camera(rel_coordinates, fov, image_param)
 
@@ -87,9 +88,11 @@ class Simulator:
     def get_camera(self):
         return self.camera
     
-    def default_camera_callback(self, image):
+    def default_camera_callback(self, image, dump_data=True):
         def get_image_data(image):
-            # image.save_to_disk(f"out/%03d.png" % (image.frame % 1000))
+            self.image_frame = image.frame
+            if dump_data is True:
+                image.save_to_disk(f"out/{self.world_name}/{image.frame}.png")
             img = np.array(image.raw_data)
             img = img.reshape((1, self.image_param[0], self.image_param[1], 4))
             img = img[:, :, :, :3] #drop alpha
