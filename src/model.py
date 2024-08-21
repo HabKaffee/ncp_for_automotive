@@ -7,9 +7,14 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 from torchvision.io import read_image
+from torchvision.transforms.functional import pil_to_tensor
 from torch.utils.data import Dataset
+from torch.utils.tensorboard import SummaryWriter
 
 from sklearn.model_selection import train_test_split
+from PIL import Image
+
+from datetime import datetime
 
 # from src.encoder import EncoderResnet18
 
@@ -65,42 +70,92 @@ class Model(nn.Module):
         self.encoder.eval()
         self.rnn.eval()
 
+class TrainingDataset(Dataset):
+    def __init__(self, annotations_file='out/Town01_opt/data.txt', img_dir='out/Town01_opt/', transform=None, target_transform=None):
+        self.image_and_steer = pd.read_csv(annotations_file, sep=":", names=['Image', 'Steer_angle'])
+        self.image_and_steer = self.image_and_steer.groupby(by=['Image']).Steer_angle.mean().reset_index()
+        self.image_and_steer = self.image_and_steer.to_dict('list')
+        image_names = self.image_and_steer['Image']
+        for idx, img_name in enumerate(image_names):
+            image = Image.open(f'{img_dir}/{img_name}.png')
+            self.image_and_steer['Image'][idx] = image
+
+    def train_test_split(self, test_size=0.2, random_state=42):
+        to_split = []
+        for item in pd.DataFrame.from_records(self.image_and_steer).iterrows():
+            to_split.append((item[1]['Image'], item[1]['Steer_angle']))
+        print(to_split)
+        self.train, self.test = train_test_split(to_split,
+                                                 test_size=test_size,
+                                                 random_state=random_state)
+        return self.train, self.test
+
 class Trainer:
-    def __init__(self, model, loss_func, optimizer):
+    def __init__(self, model, 
+                 loss_func, 
+                 optimizer, 
+                 annotations_file='out/Town01_opt/data.txt', 
+                 img_dir='out/Town01_opt',
+                 test_size=0.2,
+                 random_state=42):
         self.model = model
         self.model_encoder = self.model.encoder
         self.loss_func = loss_func
         self.optimizer = optimizer
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         torch.set_grad_enabled(True)
-        # self.model.to(self.device)
-
-    def train(self, data, true_angle):
-        self.model.train()
-        data = data.to(self.device)
-        true_angle = true_angle.to(self.device)
+        self.Dataset = TrainingDataset(annotations_file=annotations_file,
+                                       img_dir=img_dir)
+        self.test_size = test_size
+        self.random_state = random_state
         
-        line_extraction = self.model.extract_features(data)
+    def train_one_epoch(self, epoch, logger=None):
+        running_loss = 0
+        last_loss = 0
+        train, test = self.Dataset.train_test_split(test_size=0.2, random_state=self.random_state)
+        for i, data in enumerate(train):
+            image, true_angle = data
+            image = pil_to_tensor(image)
+            print(f'Img={image}, angl = {true_angle}')
+            pred_angle = self.model(image)
+            loss = self.loss_func(pred_angle, true_angle)
+            loss.backward()
+            self.optimizer.step()
+            running_loss += loss.item()
+            if i % 100 == 0:
+                last_loss = running_loss / 1000 # loss per batch
+                print(f'  batch {i+1} loss: {last_loss}')
+                tb_x = epoch * len(train) + i + 1
+                logger.add_scalar('Loss/train', last_loss, tb_x)
+                running_loss = 0.   
+        return last_loss
+         
 
-        prediction, _ = self.model.forward(data)
-        prediction = prediction[0]#torch.mean(prediction[0])
-        # loss = torch.sqrt(self.loss_func(prediction, true_angle))
-        if isinstance(prediction.item(), float):
-            loss = self.loss_func(torch.tensor(prediction.item()).to(self.device), true_angle)
-        else:
-            loss = self.loss_func(prediction.item(), true_angle)
+    def train(self, epochs=10):
         
-        #back propagation
-        loss.backward()
-        self.optimizer.step()
-        self.optimizer.zero_grad()
-        
-        print(f'Current loss (*1000) = {loss*1000:.5f}, predicted = {prediction.item():.7f}, true = {true_angle:.7f}')
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        writer = SummaryWriter('runs/fashion_trainer_{}'.format(timestamp))
 
-class TrainingDataset(Dataset):
-    def __init__(self, annotations_file='out/Town01_opt/data.txt', img_dir='out/Town01_opt/', transform=None, target_transform=None):
-        self.image_and_steer = pd.read_csv(annotations_file, sep=":", names=['Image', 'Steer_angle'])
-        self.image_and_steer = self.image_and_steers.groupby(by=['Image']).Steer_angle.mean().reset_index()
+        for epoch in range(epochs):
+            print(f'Epoch {epoch}')
+            self.model.train()
+            train_loss = self.train_one_epoch(epoch, writer)
+            
+            running_vlos = 0.0
+            self.model.eval()
+            with torch.no_grad():
+                for i, vdata in enumerate(self.Dataset.test):
+                    vinputs, vlabels = vdata
+                    vinputs = pil_to_tensor(vinputs)
+                    voutputs = self.model(vinputs)
+                    vloss = self.loss_func(voutputs, vlabels)
+                    running_vloss += vloss
+            validation_loss = running_vloss / (i + 1)
+            print(f'LOSS train {train_loss} valid {validation_loss}')
 
-    def train_test_split(self):
-        
+            # Log the running loss averaged per batch
+            # for both training and validation
+            writer.add_scalars('Training vs. Validation Loss',
+                    { 'Training' : train_loss, 'Validation' : validation_loss }, 
+                    epoch)
+            writer.flush()
