@@ -23,13 +23,13 @@ class Model(nn.Module):
         super().__init__()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         #encoder
-        # self.encoder = Encoder()
-        # self.input_size = self.encoder.fc_3.out_features
-        self.encoder = EncoderResnet18().model
-        self.input_size = self.encoder.fc.in_features
-        self.encoder_weights = models.ResNet18_Weights.IMAGENET1K_V1
-        self.encoder.fc = torch.nn.Identity()
-        self.encoder_preprocess = self.encoder_weights.transforms()
+        self.encoder = Encoder()
+        self.input_size = self.encoder.fc_3.out_features
+        # self.encoder = EncoderResnet18().model
+        # self.input_size = self.encoder.fc.in_features
+        # self.encoder_weights = models.ResNet18_Weights.IMAGENET1K_V1
+        # self.encoder.fc = torch.nn.Identity()
+        # self.encoder_preprocess = self.encoder_weights.transforms()
         
         self.output_size = output_size
         self.units = units
@@ -63,8 +63,8 @@ class Model(nn.Module):
         self.load_state_dict(torch.load(state_dict_path))
 
     def train(self):
-        self.encoder.train()
-        self.rnn.train()
+        self.encoder.train(True)
+        self.rnn.train(True)
 
     def eval(self):
         self.encoder.eval()
@@ -116,8 +116,9 @@ class Trainer:
         for i, data in enumerate(train):
             image, true_angle = data
             image = pil_to_tensor(image)
-            print(f'Img={image}, angl = {true_angle}')
+            # print(f'Img={image}, angl = {true_angle}')
             pred_angle = self.model(image)
+            print(pred_angle[0].shape)
             loss = self.loss_func(pred_angle, true_angle)
             loss.backward()
             self.optimizer.step()
