@@ -124,7 +124,7 @@ class Trainer:
             self.optimizer.step()
             running_loss += loss.item()
             if i % 100 == 0:
-                last_loss = running_loss / 1000 # loss per batch
+                last_loss = running_loss / 100 # loss per batch
                 print(f'  batch {i+1} loss: {last_loss}')
                 tb_x = epoch * len(train) + i + 1
                 logger.add_scalar('Loss/train', last_loss, tb_x)
