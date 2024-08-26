@@ -27,6 +27,7 @@ class Model(nn.Module):
         #encoder
         self.encoder = Encoder()
         self.input_size = self.encoder.fc_3.out_features
+        self.hx = None
         # self.encoder = EncoderResnet18().model
         # self.input_size = self.encoder.fc.in_features
         # self.encoder_weights = models.ResNet18_Weights.IMAGENET1K_V1
@@ -42,21 +43,14 @@ class Model(nn.Module):
         self.rnn.to(self.device)
 
     def extract_features(self, image : torch.Tensor):
-        # transformed_image = self.encoder_preprocess(image)
-        # self.input_size = transformed_image.shape[1]
         image = image.to(device=self.device, dtype=torch.float)
-        image = image.to(device=self.device, dtype=torch.float)
-        # transformed_image = transformed_image.to(self.device)
-        # x = self.encoder(transformed_image)
-        # x = self.encoder.segmentation_head(x)
-        # x = nn.functional.interpolate(x, scale_factor=32, mode='bilinear', align_corners=False)
         return self.encoder(image)
-        # return self.encoder(transformed_image)
 
     def forward(self, input, hx=None, timespans=None):
         features = self.extract_features(input)
         # features.to(self.device)
-        return torch.mean(self.rnn(features, hx, timespans), dim=0)
+        predicted_angle, self.hx = self.rnn(features, hx, timespans)
+        return predicted_angle, self.hx
     
     def save_model(self, path):
         torch.save(self.state_dict(), path)
@@ -79,8 +73,8 @@ class TrainingDataset(Dataset):
         self.image_and_steer = self.image_and_steer.to_dict('list')
         self.image_names = self.image_and_steer['Image']
         for idx, img_name in enumerate(self.image_names):
-            image = np.array(Image.open(f'{img_dir}/{img_name}.png'))
-            self.image_and_steer['Image'][idx] = torch.from_numpy(image[:, :, :3]).permute(2,0,1)
+            image = np.array(Image.open(f'{img_dir}/{img_name}.png'))[:, :, :3]
+            self.image_and_steer['Image'][idx] = torch.as_tensor(image).permute(2,0,1)
 
     def __len__(self):
         return len(self.image_and_steer)
@@ -89,14 +83,11 @@ class TrainingDataset(Dataset):
         return self.image_and_steer[self.image_names[index]]
 
     def train_test_split(self, test_size=0.2, random_state=42):
-        to_split = []
-        for item in pd.DataFrame.from_records(self.image_and_steer).iterrows():
-            to_split.append((item[1]['Image'], item[1]['Steer_angle']))
-        # print(to_split)
+        to_split = list(zip(self.image_and_steer['Image'], self.image_and_steer['Steer_angle']))
         self.train, self.test = train_test_split(to_split,
                                                  test_size=test_size,
                                                  random_state=random_state)
-        return self.train, self.test
+        #return self.train, self.test
 
 class Trainer:
     def __init__(self, model, 
@@ -107,7 +98,6 @@ class Trainer:
                  test_size=0.2,
                  random_state=42):
         self.model = model
-        self.model_encoder = self.model.encoder
         self.loss_func = loss_func
         self.optimizer = optimizer
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -117,36 +107,41 @@ class Trainer:
         self.test_size = test_size
         self.random_state = random_state
         
-    def train_one_epoch(self, epoch, logger=None):
+    def train_one_epoch(self, epoch, logger=None, batch_size=1):
         running_loss = 0
         last_loss = 0
-        train_ds, test_ds = self.Dataset.train_test_split(test_size=self.test_size, random_state=self.random_state)
-        train_dl = utils.data.DataLoader(train_ds,
-                                         batch_size=64,
+        self.Dataset.train_test_split(test_size=self.test_size, random_state=self.random_state)
+        train_dl = utils.data.DataLoader(self.Dataset.train,
+                                         batch_size=batch_size,
                                          shuffle=True,
-                                         num_workers=6)
-
+                                         num_workers=1,
+                                         pin_memory=True)
         idx = 0
         for image, true_angle in tqdm(train_dl):
+            image = image.to(self.device)
+            true_angle = true_angle.to(self.device)
+            image = image.float()
+            true_angle = true_angle.float()
             # image = pil_to_tensor(image)
             # image = torch.from_numpy(image)
             # print(f'Img={image}, angl = {true_angle}')
-            pred_angle, hx = self.model(image)
+            pred_angle, _ = self.model(image)
+            # print(pred_angle)
             # print(pred_angle[0].shape)
-            loss = self.loss_func(pred_angle, true_angle)
+            loss = self.loss_func(pred_angle[0], true_angle)
             loss.backward()
             self.optimizer.step()
             running_loss += loss.item()
             if idx % 100 == 0:
                 last_loss = running_loss / 100 # loss per batch
                 print(f'  batch {idx} loss: {last_loss}')
-                tb_x = epoch * len(train_ds) + idx + 1
+                tb_x = epoch * len(self.Dataset.train) + idx + 1
                 logger.add_scalar('Loss/train', last_loss, tb_x)
                 running_loss = 0.0
             idx += 1
         return last_loss
 
-    def train(self, epochs=10):
+    def train(self, epochs=10, batch_size=1):
         
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         writer = SummaryWriter('runs/fashion_trainer_{}'.format(timestamp))
@@ -154,7 +149,7 @@ class Trainer:
         for epoch in range(epochs):
             print(f'Epoch {epoch}')
             self.model.train()
-            train_loss = self.train_one_epoch(epoch, writer)
+            train_loss = self.train_one_epoch(epoch, writer, batch_size=batch_size)
             
             running_vlos = 0.0
             self.model.eval()
@@ -164,8 +159,8 @@ class Trainer:
                     vinputs = pil_to_tensor(vinputs)
                     voutputs = self.model(vinputs)
                     vloss = self.loss_func(voutputs, vlabels)
-                    running_vloss += vloss
-            validation_loss = running_vloss / (i + 1)
+                    running_vlos += vloss
+            validation_loss = running_vlos / (i + 1)
             print(f'LOSS train {train_loss} valid {validation_loss}')
 
             # Log the running loss averaged per batch
