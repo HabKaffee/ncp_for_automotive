@@ -122,19 +122,14 @@ class Trainer:
             true_angle = true_angle.to(self.device)
             image = image.float()
             true_angle = true_angle.float()
-            # image = pil_to_tensor(image)
-            # image = torch.from_numpy(image)
-            # print(f'Img={image}, angl = {true_angle}')
             pred_angle, _ = self.model(image)
-            # print(pred_angle)
-            # print(pred_angle[0].shape)
             loss = self.loss_func(pred_angle[0], true_angle)
             loss.backward()
             self.optimizer.step()
             running_loss += loss.item()
-            if idx % 100 == 0:
-                last_loss = running_loss / 100 # loss per batch
-                print(f'  batch {idx} loss: {last_loss}')
+            if idx % 1000 == 0:
+                last_loss = running_loss / 1000 # loss per batch
+                # print(f'  batch {idx} loss: {last_loss}')
                 tb_x = epoch * len(self.Dataset.train) + idx + 1
                 logger.add_scalar('Loss/train', last_loss, tb_x)
                 running_loss = 0.0
@@ -156,7 +151,10 @@ class Trainer:
             with torch.no_grad():
                 for i, vdata in enumerate(self.Dataset.test):
                     vinputs, vlabels = vdata
-                    vinputs = pil_to_tensor(vinputs)
+                    vinputs = vinputs.to(self.device)
+                    vlabels = vlabels.to(self.device)
+                    vinputs = vinputs.float()
+                    vlabels = vlabels.float()
                     voutputs = self.model(vinputs)
                     vloss = self.loss_func(voutputs, vlabels)
                     running_vlos += vloss
