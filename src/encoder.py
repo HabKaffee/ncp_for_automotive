@@ -57,6 +57,7 @@ class Encoder(torch.nn.Module):
         self.ident_layer = torch.nn.Identity()
 
     def forward(self, x):
+        print(x.shape)
         x = self.layer_1(x)
         print(x.shape)
         x = self.layer_2(x)

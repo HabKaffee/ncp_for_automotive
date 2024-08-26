@@ -2,6 +2,7 @@ from ncps.torch import LTC
 from ncps.wirings import AutoNCP
 from src.encoder import Encoder, EncoderResnet18
 
+import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -54,7 +55,7 @@ class Model(nn.Module):
     def forward(self, input, hx=None, timespans=None):
         features = self.extract_features(input)
         # features.to(self.device)
-        return self.rnn(features, hx, timespans)
+        return torch.mean(self.rnn(features, hx, timespans), dim=0)
     
     def save_model(self, path):
         torch.save(self.state_dict(), path)
@@ -77,8 +78,8 @@ class TrainingDataset(Dataset):
         self.image_and_steer = self.image_and_steer.to_dict('list')
         image_names = self.image_and_steer['Image']
         for idx, img_name in enumerate(image_names):
-            image = Image.open(f'{img_dir}/{img_name}.png')
-            self.image_and_steer['Image'][idx] = image
+            image = np.array(Image.open(f'{img_dir}/{img_name}.png'))
+            self.image_and_steer['Image'][idx] = torch.from_numpy(image[:, :, :3]).permute(2,0,1)
 
     def train_test_split(self, test_size=0.2, random_state=42):
         to_split = []
@@ -112,13 +113,17 @@ class Trainer:
     def train_one_epoch(self, epoch, logger=None):
         running_loss = 0
         last_loss = 0
-        train, test = self.Dataset.train_test_split(test_size=0.2, random_state=self.random_state)
-        for i, data in enumerate(train):
+        train_ds, test_ds = self.Dataset.train_test_split(test_size=self.test_size, random_state=self.random_state)
+        train_ds = train_ds.to(self.device)
+        test_ds = test_ds.to(self.device)
+
+        for i, data in enumerate(train_ds):
             image, true_angle = data
-            image = pil_to_tensor(image)
+            # image = pil_to_tensor(image)
+            # image = torch.from_numpy(image)
             # print(f'Img={image}, angl = {true_angle}')
-            pred_angle = self.model(image)
-            print(pred_angle[0].shape)
+            pred_angle, hx = self.model(image)
+            # print(pred_angle[0].shape)
             loss = self.loss_func(pred_angle, true_angle)
             loss.backward()
             self.optimizer.step()
@@ -126,11 +131,10 @@ class Trainer:
             if i % 100 == 0:
                 last_loss = running_loss / 100 # loss per batch
                 print(f'  batch {i+1} loss: {last_loss}')
-                tb_x = epoch * len(train) + i + 1
+                tb_x = epoch * len(train_ds) + i + 1
                 logger.add_scalar('Loss/train', last_loss, tb_x)
-                running_loss = 0.   
+                running_loss = 0.
         return last_loss
-         
 
     def train(self, epochs=10):
         
