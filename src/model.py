@@ -43,6 +43,7 @@ class Model(nn.Module):
         self.rnn.to(self.device)
 
     def extract_features(self, image : torch.Tensor):
+        image = torch.div(image, 255)
         image = image.to(device=self.device, dtype=torch.float)
         return self.encoder(image)
 
@@ -114,17 +115,19 @@ class Trainer:
         train_dl = utils.data.DataLoader(self.Dataset.train,
                                          batch_size=batch_size,
                                          shuffle=True,
-                                         num_workers=1,
+                                         num_workers=2,
                                          pin_memory=True)
         idx = 0
-        for image, true_angle in tqdm(train_dl):
+        for image, true_angle in tqdm(train_dl, desc='Train'):
             image = image.to(self.device)
+            true_angle = torch.Tensor([true_angle, 0, 0, 0])
             true_angle = true_angle.to(self.device)
             image = image.float()
             true_angle = true_angle.float()
             pred_angle, _ = self.model(image)
             loss = self.loss_func(pred_angle[0], true_angle)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5)
             self.optimizer.step()
             running_loss += loss.item()
             if idx % 1000 == 0:
@@ -140,7 +143,7 @@ class Trainer:
         
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         writer = SummaryWriter('runs/fashion_trainer_{}'.format(timestamp))
-
+        best_val_loss = float('inf')
         for epoch in range(epochs):
             print(f'Epoch {epoch}')
             self.model.train()
@@ -148,19 +151,26 @@ class Trainer:
             
             running_vlos = 0.0
             self.model.eval()
+            test_dl = utils.data.DataLoader(self.Dataset.test,
+                                         batch_size=batch_size,
+                                         shuffle=True,
+                                         num_workers=2,
+                                         pin_memory=True)
             with torch.no_grad():
-                for i, vdata in enumerate(self.Dataset.test):
-                    vinputs, vlabels = vdata
+                for vinputs, vlabels in tqdm(test_dl, desc='Test'):
                     vinputs = vinputs.to(self.device)
+                    vlabels = torch.Tensor([vlabels, 0, 0, 0])
                     vlabels = vlabels.to(self.device)
                     vinputs = vinputs.float()
                     vlabels = vlabels.float()
-                    voutputs = self.model(vinputs)
-                    vloss = self.loss_func(voutputs, vlabels)
+                    voutputs, _ = self.model(vinputs)
+                    vloss = self.loss_func(voutputs[0], vlabels)
                     running_vlos += vloss
-            validation_loss = running_vlos / (i + 1)
+            validation_loss = running_vlos / len(self.Dataset.test)
             print(f'LOSS train {train_loss} valid {validation_loss}')
-
+            if validation_loss < best_val_loss:
+                self.model.save_model(f'model/epoch_{epoch}_{validation_loss}.pth')
+                best_val_loss = validation_loss
             # Log the running loss averaged per batch
             # for both training and validation
             writer.add_scalars('Training vs. Validation Loss',
