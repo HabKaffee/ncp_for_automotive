@@ -33,12 +33,14 @@ class NCPAgent(BasicAgent):
         raw_data = self.sensors_data_storage.get_sensor_data('camera_front')
         if raw_data is None:
             control = super().run_step()
-            return control, 0, None, 0
-        data = self.model.extract_features(raw_data)
-        data = data.to(self.device)
-        out = self.model.rnn(data)
-        movement = torch.mean(out[0])
+            return control, [0,0,0,0], None
+        # print(raw_data)
+        # data = self.model.extract_features(raw_data)
+        # print(data)
+        # data = data.to(self.device)
+        # out, _ = self.model.rnn(data)
+        out = self.model(raw_data)
         control = super().run_step()
 
-        return control, movement, raw_data, out[0]
+        return control, out, raw_data
 
