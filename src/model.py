@@ -1,6 +1,6 @@
 from ncps.torch import LTC
 from ncps.wirings import AutoNCP
-from src.encoder import Encoder, EncoderResnet18
+from src.encoder import Encoder, EncoderResnet
 
 from tqdm import tqdm
 import numpy as np
@@ -67,8 +67,9 @@ class Model(nn.Module):
         super().__init__()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         #encoder
-        self.encoder = Encoder()
-        self.input_size = self.encoder.fc_3.out_features
+        self.encoder = EncoderResnet()
+
+        self.input_size = self.encoder.output_features
         
         self.output_size = output_size
         self.units = units
@@ -95,11 +96,11 @@ class Model(nn.Module):
         self.load_state_dict(torch.load(state_dict_path))
 
     def train(self):
-        self.encoder.train(True)
-        self.rnn.train(True)
+        self.encoder.set_trainable(True)
+        self.rnn.train()
 
     def eval(self):
-        self.encoder.eval()
+        self.encoder.set_trainable(False)
         self.rnn.eval()
 
 
