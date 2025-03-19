@@ -18,8 +18,6 @@ from PIL import Image
 
 from datetime import datetime
 
-# from src.encoder import EncoderResnet18
-
 class TrainingDataset(Dataset):
     def __init__(self, annotations_file='out/Town01_opt/data.txt', img_dir='out/Town01_opt/', transform=None, target_transform=None):
         self.img_dir = img_dir

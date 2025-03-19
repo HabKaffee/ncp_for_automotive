@@ -4,13 +4,13 @@ import torch.nn.functional as F
 
 class EncoderResnet(torch.nn.Module):
     def __init__(self, 
-                 model_fn : models.ResNet = models.resnet50, 
-                 weigths : models.Weights = model.ResNet50_Weights.IMAGENET1K_V2,
+                 model_fn : models.ResNet = models.resnet18, 
+                 weigths : models.Weights = model.ResNet18_Weights.DEFAULT,
                  train_encoder : bool = True):
         super(EncoderResnet, self).__init__()
         self.weights = weigths
         self.model = model_fn(weights=self.weights)
-        self.output_size = 2048
+        self.output_size = 512
         self.preprocess = self.weights.transforms()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         # Remove classification layer
