@@ -3,8 +3,6 @@ sys.path.append("CARLA_SIM/PythonAPI/carla/")
 import carla
 from agents.navigation.basic_agent import BasicAgent
 import torch
-from random import randint
-import numpy as np
 
 from src.simulator import Simulator
 
@@ -39,8 +37,9 @@ class NCPAgent(BasicAgent):
         # print(data)
         # data = data.to(self.device)
         # out, _ = self.model.rnn(data)
-        out, _ = self.model(raw_data)
+        # out, _ = self.model(raw_data)
         control = super().run_step()
 
-        return control, out, raw_data
+        # return control, out, raw_data
+        return control, None, raw_data
 

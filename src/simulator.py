@@ -84,7 +84,7 @@ class Simulator:
                               model : str = 'vehicle.nissan.patrol_2021',
                               vehicle_rotation=(0,0,0),
                               rel_coordinates : carla.Location = carla.Location(x=2, z=1.5),
-                              fov = 90, image_param = (200, 78)):
+                              fov = 90, image_param = (224, 224)):
         self.spawn_vehicle(model, vehicle_rotation)
         self.spawn_camera(rel_coordinates, fov, image_param)
 

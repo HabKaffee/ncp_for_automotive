@@ -67,7 +67,7 @@ class Model(nn.Module):
         #encoder
         self.encoder = EncoderResnet()
 
-        self.input_size = self.encoder.output_features
+        self.input_size = self.encoder.output_size
         
         self.output_size = output_size
         self.units = units

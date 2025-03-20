@@ -5,7 +5,7 @@ import torch.nn.functional as F
 class EncoderResnet(torch.nn.Module):
     def __init__(self, 
                  model_fn : models.ResNet = models.resnet18, 
-                 weigths : models.Weights = model.ResNet18_Weights.DEFAULT,
+                 weigths : models.Weights = models.ResNet18_Weights.DEFAULT,
                  train_encoder : bool = True):
         super(EncoderResnet, self).__init__()
         self.weights = weigths
