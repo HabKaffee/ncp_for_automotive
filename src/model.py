@@ -80,18 +80,22 @@ class Model(nn.Module):
     def extract_features(self, image : torch.Tensor):
         return self.encoder(image.to(device=self.device, dtype=torch.float32))
 
-    def forward(self, input, hx=None, timespans=None):
-        if hx is None:
-            hx = self.rnn.hx
+    def forward(self, input, hx=None, timespans=None, train=False):
         features = self.extract_features(input)
-        predicted_angle, self.rnn.hx = self.rnn(features, hx, timespans)
+        # print(features)
+        if train:
+            predicted_angle, self.rnn.hx = self.rnn(features, self.rnn.hx, timespans)
+        else:
+            predicted_angle, _ = self.rnn(features, self.rnn.hx, timespans)
         return predicted_angle, self.rnn.hx
     
     def save_model(self, path):
         torch.save(self.state_dict(), path)
+        torch.save(self.rnn.hx, f'hidden_{path}')
     
     def load_model(self, state_dict_path):
         self.load_state_dict(torch.load(state_dict_path))
+        self.rnn.hx = torch.load(f'hidden_{state_dict_path}')
 
     def train(self):
         self.encoder.set_trainable(True)
@@ -136,9 +140,9 @@ class Trainer:
             true_angle_dev = true_angle_dev.to(self.device, dtype=torch.float32, non_blocking=True)
             
             self.optimizer.zero_grad()
-            pred_angle, self.model.rnn.hx = self.model(image)
+            pred_angle, self.model.rnn.hx = self.model(image, train=True)
             self.model.rnn.hx = self.model.rnn.hx.detach()
-            loss = self.loss_func(pred_angle[0], true_angle_dev)
+            loss = self.loss_func(pred_angle[0], true_angle_dev[0])
             
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5)
@@ -180,13 +184,13 @@ class Trainer:
                     vinputs = vinputs.float()
                     vlabels = vlabels.float()
                     voutputs, _ = self.model(vinputs)
-                    vloss = self.loss_func(voutputs[0], vlabels)
+                    vloss = self.loss_func(voutputs[0], vlabels[0])
                     running_vlos += vloss
             validation_loss = running_vlos / len(self.Dataset.test_indices)
             print(f'LOSS train {train_loss} valid {validation_loss}')
-            if validation_loss < best_val_loss:
-                self.model.save_model(f'model/epoch_{epoch}_{validation_loss}.pth')
-                best_val_loss = validation_loss
+            # if validation_loss < best_val_loss:
+            self.model.save_model(f'model/epoch_{epoch}_{validation_loss:.5f}.pth')
+            # best_val_loss = validation_loss
             # Log the running loss averaged per batch
             # for both training and validation
             writer.add_scalars('Training vs. Validation Loss',
