@@ -25,7 +25,8 @@ class SensorsData:
 class Simulator:
     def __init__(self,
                  world_name : str='Town01',
-                 debug=True) -> None:
+                 debug=True,
+                 dump_data=True) -> None:
         self.client = carla.Client('localhost', 2000)
         self.client.set_timeout(10)
         self.world_name = world_name
@@ -36,12 +37,12 @@ class Simulator:
         self.collision_sensor = None
         self.spawn_points = self.world.get_map().get_spawn_points()
         self.sensors_data = SensorsData()
+        self.dump_data = dump_data
         self.image_frame = None
         if debug:
             self.world.unload_map_layer(carla.MapLayer.Buildings)
             self.world.unload_map_layer(carla.MapLayer.ParkedVehicles)
             self.world.unload_map_layer(carla.MapLayer.StreetLights)
-            
     
     def spawn_camera(self, 
                      rel_coordinates : carla.Location = carla.Location(x=2, z=1.5),
@@ -94,10 +95,10 @@ class Simulator:
     def get_camera(self):
         return self.camera
     
-    def default_camera_callback(self, image, dump_data=True):
+    def default_camera_callback(self, image):
         def get_image_data(image):
             self.image_frame = image.frame
-            if dump_data is True:
+            if self.dump_data is True:
                 image.save_to_disk(f"out/{self.world_name}/{image.frame}.png")
             img = np.array(image.raw_data)
             img = img.reshape((1, self.image_param[0], self.image_param[1], 4))

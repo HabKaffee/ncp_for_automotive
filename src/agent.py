@@ -29,17 +29,14 @@ class NCPAgent(BasicAgent):
 
     def run_step(self):
         raw_data = self.sensors_data_storage.get_sensor_data('camera_front')
-        # if raw_data is None:
-        # control = super().run_step()
-        # return control, [0,0,0,0], None
-        # print(raw_data)
-        # data = self.model.extract_features(raw_data)
-        # print(data)
-        # data = data.to(self.device)
-        # out, _ = self.model.rnn(data)
-        # out, _ = self.model(raw_data)
-        control = super().run_step()
+        if raw_data is None:
+            control = super().run_step()
+            return control, [0,0,0,0], None
+        #print(raw_data)
+        model_control, _ = self.model(raw_data)
+        #print(data)
+        true_control = super().run_step()
 
-        # return control, out, raw_data
-        return control, None, raw_data
+        return true_control, model_control, raw_data
+        # return control, None, raw_data
 

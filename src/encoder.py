@@ -1,6 +1,7 @@
 import torch
 import torchvision.models as models
 import torch.nn.functional as F
+import numpy as np
 
 class EncoderResnet(torch.nn.Module):
     def __init__(self, 
@@ -18,20 +19,20 @@ class EncoderResnet(torch.nn.Module):
         self.model.to(self.device)
         self.set_trainable(train_encoder)
 
+    def forward(self, data):
+        if data.dim() == 4:
+            transformed = torch.stack([self.preprocess(image) for image in data])
+        else:
+            transformed = self.preprocess(data)
+        transformed = transformed.to(self.device)
+        return self.model(transformed)
+
     def set_trainable(self, trainable: bool):
         """
         Toggle the trainability of the encoder dynamically.
         """
         for param in self.model.parameters():
             param.requires_grad = trainable
-
-    def preprocess_image(self, image : torch.Tensor):
-        return self.preprocess(image)
-
-    def extract_features(self, image : torch.Tensor):
-        transformed_image = self.preprocess_image(image)
-        transformed_image = transformed_image.to(self.device)
-        return self.model(transformed_image)
 
 '''
 convolution head
