@@ -68,25 +68,20 @@ class Simulator:
 
     def spawn_vehicle(self,
                       model : str = 'vehicle.nissan.patrol_2021',
-                      rotation = (0,0,0)): 
+                      coordinates : carla.Location = carla.Location(0,0,0),
+                      rotation : carla.Rotation = carla.Rotation(0,0,0)): 
         vehicle_bp = self.world.get_blueprint_library().find(model)
         if not self.vehicle:
-            if (self.world_name.find('Town04') != -1):
-                self.vehicle = self.world.try_spawn_actor(vehicle_bp, 
-                                                          carla.Transform(self.spawn_points[222].location,
-                                                                          carla.Rotation(rotation[0],rotation[1], rotation[2])) # pitch yaw roll
-                                                         )
-            else:
-                self.vehicle = self.world.try_spawn_actor(vehicle_bp, carla.Transform(random.choice(self.spawn_points).location, 
-                                                          carla.Rotation(rotation[0],rotation[1], rotation[2]))) # pitch yaw roll)
+                self.vehicle = self.world.try_spawn_actor(vehicle_bp, carla.Transform(coordinates, rotation))
         self.spawn_collision_sensor()
 
     def spawn_car_with_camera(self,
                               model : str = 'vehicle.nissan.patrol_2021',
-                              vehicle_rotation=(0,0,0),
+                              vehicle_coordinates=carla.Location(0,0,0),
+                              vehicle_rotation=carla.Rotation(0,0,0),
                               rel_coordinates : carla.Location = carla.Location(x=2, z=1.5),
                               fov = 90, image_param = (224, 224)):
-        self.spawn_vehicle(model, vehicle_rotation)
+        self.spawn_vehicle(model, vehicle_coordinates, vehicle_rotation)
         self.spawn_camera(rel_coordinates, fov, image_param)
 
     def get_vehicle(self):

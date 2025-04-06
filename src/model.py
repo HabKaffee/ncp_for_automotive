@@ -31,7 +31,7 @@ class TrainingDataset(Dataset):
     
     def __getitem__(self, idx):
         img_name = self.image_names[idx]
-        image_path = f'{self.img_dir}/{img_name}.png'.replace(" .", ".")
+        image_path = f'{self.img_dir}/{img_name}.png'.replace(" ", "")
         image = torchvision.io.read_image(image_path)[0:3].float() / 255.0
 
         steer_angle = self.steer_angles[idx]
