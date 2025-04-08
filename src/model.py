@@ -142,9 +142,10 @@ class Trainer:
             self.optimizer.zero_grad()
             prediction, self.model.rnn.hx = self.model(image, train=True)
             self.model.rnn.hx = self.model.rnn.hx.detach()
-            pred_steer = prediction[:, 1] - prediction[:, 0]
+            # pred_steer = prediction[:, 1] - prediction[:, 0]
+            pred_steer = prediction[:, 0]
             
-            reg_magnitude = 0.001 * torch.mean((prediction[:, 0]**2 + prediction[:, 1]**2))
+            # reg_magnitude = 0.001 * torch.mean((prediction[:, 0]**2 + prediction[:, 1]**2))
 
             steer_loss = self.loss_func(pred_steer, true_angle_dev[:, 0])
             throttle_loss = self.loss_func(prediction[:, 2], true_angle_dev[:, 2])
@@ -152,8 +153,8 @@ class Trainer:
             
             loss = steer_loss * self.stb_weights[0] + \
                     throttle_loss * self.stb_weights[1] + \
-                    brake_loss * self.stb_weights[2] + \
-                    reg_magnitude
+                    brake_loss * self.stb_weights[2]# + \
+                    # reg_magnitude
 
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5)
@@ -161,7 +162,7 @@ class Trainer:
             running_loss += loss.item()
             last_loss = running_loss # loss per batch
             with open('training.log', 'a+') as f:
-                f.write(f'\tbatch {idx/1000} loss: {last_loss}\n')
+                f.write(f'\tItem {idx} of {len(train_dl)} loss: {last_loss}\n')
             tb_x = epoch * len(self.Dataset.train_indices) + idx + 1
             logger.add_scalar('Loss/train', last_loss, tb_x)
             running_loss = 0.0
@@ -197,7 +198,8 @@ class Trainer:
                     # vlabels_padded[:, 2] = vlabels[:, 1] # throttle
                     # vlabels_padded[:, 3] = vlabels[:, 2] # brake
                     voutputs, _ = self.model(vinputs)
-                    pred_steer = voutputs[:, 1] - voutputs[:, 0]
+                    # pred_steer = voutputs[:, 1] - voutputs[:, 0]
+                    pred_steer = voutputs[:, 0]
                     steer_loss = self.loss_func(pred_steer, vlabels)
                     # throttle_loss = self.loss_func(voutputs[:, 2], vlabels[...])
                     # brake_loss = self.loss_func(voutputs[:, 3], vlabels[...])
