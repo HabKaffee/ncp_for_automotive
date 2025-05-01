@@ -1,22 +1,24 @@
 import carla
 import numpy as np
 import random
+from collections import deque
 
 import torch
 
 class SensorsData:
-    def __init__(self):
+    def __init__(self, sequence_len=30):
         self.sensors = dict()
         self.id = 0
+        self.sequence_len = sequence_len
     
     def add_sensor(self, sensor_type:str = 'camera', direction:str = 'front'):
-        self.sensors[f'{sensor_type}_{direction}'] = None
+        self.sensors[f'{sensor_type}_{direction}'] = deque(maxlen=self.sequence_len)
     
     def update_sensor_data(self, data, sensor_name:str = 'camera_front'):
         if sensor_name.find('camera') != -1:
-            self.sensors[sensor_name] = torch.from_numpy(data).permute(0, 3, 1, 2)
+            self.sensors[sensor_name].append(torch.from_numpy(data).permute(0, 3, 1, 2))
         else:
-            self.sensors[sensor_name] = data
+            self.sensors[sensor_name].append(data)
         # print(self.sensors[sensor_name].shape)
 
     def get_sensor_data(self, sensor_name:str = 'camera_front'):
@@ -26,7 +28,8 @@ class Simulator:
     def __init__(self,
                  world_name : str='Town01',
                  debug=True,
-                 dump_data=True) -> None:
+                 dump_data=True,
+                 sequence_len=30) -> None:
         self.client = carla.Client('localhost', 2000)
         self.client.set_timeout(10)
         self.world_name = world_name
@@ -36,9 +39,12 @@ class Simulator:
         self.camera = None
         self.collision_sensor = None
         self.spawn_points = self.world.get_map().get_spawn_points()
-        self.sensors_data = SensorsData()
         self.dump_data = dump_data
         self.image_frame = None
+        
+        self.sequence_len = sequence_len
+        self.sensors_data = SensorsData(sequence_len=self.sequence_len)
+        
         if debug:
             self.world.unload_map_layer(carla.MapLayer.Buildings)
             self.world.unload_map_layer(carla.MapLayer.ParkedVehicles)
