@@ -24,7 +24,7 @@ class NCPAgent(BasicAgent):
         self.simulator.start_collision_sensor()
         self.previous_pos = self.vehicle.get_location()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
+        self.hx = None
         self.model = model
 
     def run_step(self, dump_data=False):
@@ -35,9 +35,9 @@ class NCPAgent(BasicAgent):
         if dump_data:
             true_control = super().run_step()
             return true_control, None, raw_data
-        #print(raw_data)
-        model_control, _ = self.model(list(raw_data)[-10:])
-        #print(data)
+        with torch.no_grad():
+            data = torch.stack(list(raw_data)[-10:]).to(self.device, dtype=torch.float32)
+            model_control, self.hx = self.model(data, self.hx)
         true_control = super().run_step()
 
         return true_control, model_control, raw_data

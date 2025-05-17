@@ -18,14 +18,20 @@ class EncoderResnet(torch.nn.Module):
         self.model.fc = torch.nn.Identity()
         self.model.to(self.device)
         self.set_trainable(train_encoder)
+        self.freeze_batchnorm()
+
+    def freeze_batchnorm(self):
+        for module in self.model.modules():
+            if isinstance(module, torch.nn.BatchNorm2d):
+                module.eval()
+                for param in module.parameters():
+                    param.requires_grad = False
 
     def forward(self, data):
-        if data.dim() == 4:
-            transformed = torch.stack([self.preprocess(image) for image in data])
-        else:
-            transformed = self.preprocess(data)
-        transformed = transformed.to(self.device)
-        return self.model(transformed)
+        if data.dim() != 4:
+            raise ValueError(f"Expected 4D input (B, C, H, W), got {data.shape}")
+
+        return self.model(data)
 
     def set_trainable(self, trainable: bool):
         """
