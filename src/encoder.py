@@ -3,6 +3,7 @@ import torchvision.models as models
 import torch.nn.functional as F
 import numpy as np
 
+# Resnet without separation
 class EncoderResnet(torch.nn.Module):
     def __init__(self, 
                  model_fn : models.ResNet = models.resnet18, 
@@ -39,6 +40,31 @@ class EncoderResnet(torch.nn.Module):
         """
         for param in self.model.parameters():
             param.requires_grad = trainable
+
+class LanePretrainedResNet18Encoder(torch.nn.Module):
+    def __init__(self, checkpoint_path):
+        super().__init__()
+
+        resnet = models.resnet18(pretrained=False)
+
+        state_dict = torch.load(checkpoint_path, map_location='cpu')
+        encoder_weights = {
+            k.replace('model.', ''): v
+            for k, v in state_dict['model'].items()
+            if k.startswith('model.') and not k.startswith('model.cls') and not k.startswith('model.pool')
+        }
+
+        resnet.load_state_dict(encoder_weights, strict=False)
+
+        self.features = torch.nn.Sequential(*list(resnet.children())[:-1])  # includes avgpool
+        self.output_size = 512
+
+    def forward(self, x):
+        x = self.features(x)          # Shape: [B, 512, 1, 1]
+        x = torch.flatten(x, 1)       # Shape: [B, 512]
+        if torch.any(torch.isnan(x)):
+            raise ValueError("Got NaN in features")
+        return x
 
 '''
 convolution head

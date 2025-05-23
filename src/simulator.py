@@ -13,14 +13,14 @@ class SensorsData:
         self.current_load = dict()
     
     def add_sensor(self, sensor_type:str = 'camera', direction:str = 'front'):
-        self.sensors[f'{sensor_type}_{direction}'] = deque()
+        self.sensors[f'{sensor_type}_{direction}'] = deque(maxlen=self.sequence_len * 30)
         self.current_load[f'{sensor_type}_{direction}'] = 0
     
     def update_sensor_data(self, data, sensor_name:str = 'camera_front'):
         if sensor_name.find('camera') != -1:
-            if self.current_load[sensor_name] == self.sequence_len:
-                to_delete = self.sensors[sensor_name].popleft()
-                del to_delete
+            # if self.current_load[sensor_name] == self.sequence_len:
+            # self.sensors[sensor_name].popleft()
+                # del to_delete
             self.sensors[sensor_name].append(torch.from_numpy(data).permute(0, 3, 1, 2))
         else:
             self.sensors[sensor_name].append(data)
@@ -110,7 +110,7 @@ class Simulator:
             img = img.reshape((1, self.image_param[0], self.image_param[1], 4))
             img = img[:, :, :, :3] #drop alpha
 
-            return img / 255.0 # normalize data
+            return (img / 255.0).copy() # normalize data
         
         data = get_image_data(image)
         self.sensors_data.update_sensor_data(data, 'camera_front')
