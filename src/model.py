@@ -54,8 +54,12 @@ class CustomDataset(Dataset):
 
             self.data_groups.append(group)
 
-            num_sequences = len(image_names) - sequence_length + 1
-            for local_idx in range(num_sequences):
+            # num_sequences = len(image_names) - sequence_length + 1
+            # for local_idx in range(num_sequences):
+            #     self.samples.append((group_id, local_idx))
+
+            max_start = len(image_names) - sequence_length * (sequence_length - 1)
+            for local_idx in range(max_start):
                 self.samples.append((group_id, local_idx))
 
         self.train_indices = []
@@ -96,8 +100,11 @@ class CustomDataset(Dataset):
         group = self.data_groups[group_id]
 
         images = []
+        # for i in range(self.sequence_length):
+        #     img_name = group['image_names'][local_idx + i]
         for i in range(self.sequence_length):
-            img_name = group['image_names'][local_idx + i]
+            img_index = local_idx + i * self.sequence_length
+            img_name = group['image_names'][img_index]
             image_path = os.path.join(group['img_dir'], f"{img_name}.png").replace(" ", "")
             if not os.path.exists(image_path):
                 raise FileNotFoundError(f"Missing: {image_path}")
@@ -107,7 +114,7 @@ class CustomDataset(Dataset):
             images.append(image)
 
         images = torch.stack(images, dim=0)
-        steer_angle = group['steer_angles'][local_idx + self.sequence_length - 1]
+        steer_angle = group['steer_angles'][local_idx + self.sequence_length * (self.sequence_length - 1)]
         if isinstance(steer_angle, str) or np.isnan(steer_angle):
             raise ValueError(f"Invalid steer angle at idx {idx}: {steer_angle}")
         return images, steer_angle
