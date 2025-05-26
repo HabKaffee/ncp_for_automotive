@@ -1,34 +1,70 @@
 import torch
 import torchvision.models as models
 import torch.nn.functional as F
+import numpy as np
 
-class EncoderResnet18:
+# Resnet without separation
+class EncoderResnet(torch.nn.Module):
     def __init__(self, 
-                 model : models.ResNet = models.resnet18, 
-                 weigths : models.Weights = models.ResNet18_Weights.IMAGENET1K_V1):
+                 model_fn : models.ResNet = models.resnet18, 
+                 weigths : models.Weights = models.ResNet18_Weights.DEFAULT,
+                 train_encoder : bool = True):
+        super(EncoderResnet, self).__init__()
         self.weights = weigths
-        self.model = model()
+        self.model = model_fn(weights=self.weights)
         self.output_size = 512
-        # self.output_size = 1
         self.preprocess = self.weights.transforms()
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        #remove fc layer
-        # self.model.fc = torch.nn.Identity()
-        self.model.fc = torch.nn.Linear(self.model.fc.in_features, 1)
-        # self.model.detection_hdead = torch.nn.Conv2d(self.output_size, 1, kernel_size=1)
+        # Remove classification layer
+        self.model.fc = torch.nn.Identity()
         self.model.to(self.device)
-        
-        self.model.train()
-        # self.model.eval()
+        self.set_trainable(train_encoder)
+        self.freeze_batchnorm()
 
-    def preprocess_image(self, image : torch.Tensor):
-        return self.preprocess(image)
+    def freeze_batchnorm(self):
+        for module in self.model.modules():
+            if isinstance(module, torch.nn.BatchNorm2d):
+                module.eval()
+                for param in module.parameters():
+                    param.requires_grad = False
 
-    def extract_features(self, image : torch.Tensor):
-        transformed_image = self.preprocess_image(image)
-        self.output_size = transformed_image.shape[1]
-        transformed_image = transformed_image.to(self.device)
-        return self.model(transformed_image)
+    def forward(self, data):
+        if data.dim() != 4:
+            raise ValueError(f"Expected 4D input (B, C, H, W), got {data.shape}")
+
+        return self.model(data)
+
+    def set_trainable(self, trainable: bool):
+        """
+        Toggle the trainability of the encoder dynamically.
+        """
+        for param in self.model.parameters():
+            param.requires_grad = trainable
+
+class LanePretrainedResNet18Encoder(torch.nn.Module):
+    def __init__(self, checkpoint_path):
+        super().__init__()
+
+        resnet = models.resnet18(pretrained=False)
+
+        state_dict = torch.load(checkpoint_path, map_location='cpu')
+        encoder_weights = {
+            k.replace('model.', ''): v
+            for k, v in state_dict['model'].items()
+            if k.startswith('model.') and not k.startswith('model.cls') and not k.startswith('model.pool')
+        }
+
+        resnet.load_state_dict(encoder_weights, strict=False)
+
+        self.features = torch.nn.Sequential(*list(resnet.children())[:-1])  # includes avgpool
+        self.output_size = 512
+
+    def forward(self, x):
+        x = self.features(x)          # Shape: [B, 512, 1, 1]
+        x = torch.flatten(x, 1)       # Shape: [B, 512]
+        if torch.any(torch.isnan(x)):
+            raise ValueError("Got NaN in features")
+        return x
 
 '''
 convolution head
@@ -40,6 +76,9 @@ layer 5: 8 filters, kernel size 3, strides 1
 '''
 
 class Encoder(torch.nn.Module):
+    '''
+    Legacy encoder. Do not use!
+    '''
     def __init__(self, delta1=0.5, delta2=0.5, delta3=0.3):
         super().__init__()
         self.layer_1 = torch.nn.Conv2d(3, 3, kernel_size=5, stride=2)

@@ -1,22 +1,29 @@
 import carla
 import numpy as np
 import random
+from collections import deque
 
 import torch
 
 class SensorsData:
-    def __init__(self):
+    def __init__(self, sequence_len=30):
         self.sensors = dict()
         self.id = 0
+        self.sequence_len = sequence_len
+        self.current_load = dict()
     
     def add_sensor(self, sensor_type:str = 'camera', direction:str = 'front'):
-        self.sensors[f'{sensor_type}_{direction}'] = None
+        self.sensors[f'{sensor_type}_{direction}'] = deque(maxlen=self.sequence_len * 30)
+        self.current_load[f'{sensor_type}_{direction}'] = 0
     
     def update_sensor_data(self, data, sensor_name:str = 'camera_front'):
         if sensor_name.find('camera') != -1:
-            self.sensors[sensor_name] = torch.from_numpy(data).permute(0, 3, 1, 2)
+            # if self.current_load[sensor_name] == self.sequence_len:
+            # self.sensors[sensor_name].popleft()
+                # del to_delete
+            self.sensors[sensor_name].append(torch.from_numpy(data).permute(0, 3, 1, 2))
         else:
-            self.sensors[sensor_name] = data
+            self.sensors[sensor_name].append(data)
         # print(self.sensors[sensor_name].shape)
 
     def get_sensor_data(self, sensor_name:str = 'camera_front'):
@@ -25,7 +32,9 @@ class SensorsData:
 class Simulator:
     def __init__(self,
                  world_name : str='Town01',
-                 debug=True) -> None:
+                 debug=True,
+                 dump_data=True,
+                 sequence_len=30) -> None:
         self.client = carla.Client('localhost', 2000)
         self.client.set_timeout(10)
         self.world_name = world_name
@@ -35,13 +44,16 @@ class Simulator:
         self.camera = None
         self.collision_sensor = None
         self.spawn_points = self.world.get_map().get_spawn_points()
-        self.sensors_data = SensorsData()
+        self.dump_data = dump_data
         self.image_frame = None
+        
+        self.sequence_len = sequence_len
+        self.sensors_data = SensorsData(sequence_len=self.sequence_len)
+        
         if debug:
             self.world.unload_map_layer(carla.MapLayer.Buildings)
             self.world.unload_map_layer(carla.MapLayer.ParkedVehicles)
             self.world.unload_map_layer(carla.MapLayer.StreetLights)
-            
     
     def spawn_camera(self, 
                      rel_coordinates : carla.Location = carla.Location(x=2, z=1.5),
@@ -66,20 +78,21 @@ class Simulator:
         self.sensors_data.add_sensor(sensor_type='collision', direction='front')
 
     def spawn_vehicle(self,
-                      model : str = 'vehicle.nissan.patrol_2021'):
+                      model : str = 'vehicle.nissan.patrol_2021',
+                      coordinates : carla.Location = carla.Location(0,0,0),
+                      rotation : carla.Rotation = carla.Rotation(0,0,0)): 
         vehicle_bp = self.world.get_blueprint_library().find(model)
         if not self.vehicle:
-            if (self.world_name.find('Town04') != -1):
-                self.vehicle = self.world.try_spawn_actor(vehicle_bp, self.spawn_points[222])
-            else:
-                self.vehicle = self.world.try_spawn_actor(vehicle_bp, random.choice(self.spawn_points))
+                self.vehicle = self.world.try_spawn_actor(vehicle_bp, carla.Transform(coordinates, rotation))
         self.spawn_collision_sensor()
 
     def spawn_car_with_camera(self,
                               model : str = 'vehicle.nissan.patrol_2021',
-                              rel_coordinates : carla.Location = carla.Location(x=2, z=1.5), 
-                              fov = 90, image_param = (200, 78)):
-        self.spawn_vehicle(model)
+                              vehicle_coordinates=carla.Location(0,0,0),
+                              vehicle_rotation=carla.Rotation(0,0,0),
+                              rel_coordinates : carla.Location = carla.Location(x=2, z=1.5),
+                              fov = 90, image_param = (224, 224)):
+        self.spawn_vehicle(model, vehicle_coordinates, vehicle_rotation)
         self.spawn_camera(rel_coordinates, fov, image_param)
 
     def get_vehicle(self):
@@ -88,16 +101,16 @@ class Simulator:
     def get_camera(self):
         return self.camera
     
-    def default_camera_callback(self, image, dump_data=True):
+    def default_camera_callback(self, image):
         def get_image_data(image):
             self.image_frame = image.frame
-            if dump_data is True:
+            if self.dump_data is True:
                 image.save_to_disk(f"out/{self.world_name}/{image.frame}.png")
             img = np.array(image.raw_data)
             img = img.reshape((1, self.image_param[0], self.image_param[1], 4))
             img = img[:, :, :, :3] #drop alpha
 
-            return img / 255.0 # normalize data
+            return (img / 255.0).copy() # normalize data
         
         data = get_image_data(image)
         self.sensors_data.update_sensor_data(data, 'camera_front')

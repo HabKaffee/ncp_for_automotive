@@ -1,198 +1,253 @@
 from ncps.torch import LTC
 from ncps.wirings import AutoNCP
-from src.encoder import Encoder, EncoderResnet18
+from src.encoder import EncoderResnet, LanePretrainedResNet18Encoder
 
-from tqdm import tqdm
+import os
+
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-import torch.utils as utils
 
-import torchvision
+import torchvision as tv
 from torch.utils.data import Dataset
-from torch.utils.tensorboard import SummaryWriter
+
+import pytorch_lightning as pl
+from torch.nn import functional as F
+from torch.utils.data import DataLoader, Subset
 
 from sklearn.model_selection import train_test_split
 from PIL import Image
 
-from datetime import datetime
+from math import ceil
 
-# from src.encoder import EncoderResnet18
+# get pretrained model from https://github.com/cfzd/Ultra-Fast-Lane-Detection-v2
 
-class TrainingDataset(Dataset):
-    def __init__(self, annotations_file='out/Town01_opt/data.txt', img_dir='out/Town01_opt/', transform=None, target_transform=None):
-        self.img_dir = img_dir
-        self.image_and_steer = pd.read_csv(annotations_file, sep=":", names=['Image', 'Steer_angle'])
-        self.image_and_steer = self.image_and_steer.groupby(by=['Image']).Steer_angle.mean().reset_index()
-        self.image_names = self.image_and_steer['Image'].tolist()
-        self.steer_angles = self.image_and_steer['Steer_angle'].tolist()
+class CustomDataset(Dataset):
+    def __init__(self, datasets, sequence_length=10):
+        """
+        datasets: list of dicts with keys 'annotations_file' and 'img_dir'
+        """
+        self.sequence_length = sequence_length
+        self.normalizer = tv.transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                       std=[0.229, 0.224, 0.225])
+        self.samples = []  # Each item: (group_id, local_start_idx)
+        self.data_groups = []  # Stores each dataset’s data separately
+
+        for group_id, dataset in enumerate(datasets):
+            df = pd.read_csv(dataset['annotations_file'], sep=":", names=['Image', 'Steer_angle'])
+            df = df.groupby(by=['Image']).Steer_angle.mean().reset_index()
+            df['Steer_angle'] = pd.to_numeric(df['Steer_angle'], errors='coerce')
+            df.dropna(inplace=True)
+
+            df['Steer_angle'] = ((df['Steer_angle'] + 1) / 2) * 140 - 70
+            # print(df['Steer_angle'].describe())
+            image_names = df['Image'].tolist()
+            steer_angles = df['Steer_angle'].tolist()
+            img_dir = dataset['img_dir']
+
+            group = {
+                'image_names': image_names,
+                'steer_angles': steer_angles,
+                'img_dir': img_dir
+            }
+
+            self.data_groups.append(group)
+
+            # num_sequences = len(image_names) - sequence_length + 1
+            # for local_idx in range(num_sequences):
+            #     self.samples.append((group_id, local_idx))
+
+            max_start = len(image_names) - sequence_length * (sequence_length - 1)
+            for local_idx in range(max_start):
+                self.samples.append((group_id, local_idx))
+
+        self.train_indices = []
+        self.test_indices = []
+
+    # def _train_test_split(self, test_size=0.2, random_state=42):
+    #     self.train_indices = []
+    #     self.test_indices = []
+
+    #     stride = ceil(self.sequence_length)
+
+    #     for group_id, group in enumerate(self.data_groups):
+    #         image_names = group['image_names']
+    #         max_start = len(image_names) - self.sequence_length + 1
+    #         valid_local_indices = list(range(0, max_start, stride))
+
+    #         global_indices = []
+    #         for local_idx in valid_local_indices:
+    #             global_idx = self.samples.index((group_id, local_idx)) if (group_id, local_idx) in self.samples else None
+    #             if global_idx is not None:
+    #                 global_indices.append(global_idx)
+
+    #         train_ids, test_ids = train_test_split(global_indices, test_size=test_size, random_state=random_state)
+    #         self.train_indices.extend(train_ids)
+    #         self.test_indices.extend(test_ids)
+
+    def assign_train_val_by_dataset(self, val_dataset_index):
+        self.test_indices = [i for i, (gid, _) in enumerate(self.samples) if gid == val_dataset_index]
+        self.train_indices = [i for i, (gid, _) in enumerate(self.samples) if gid != val_dataset_index]
+
+
 
     def __len__(self):
-        return len(self.image_names)
-    
+        return len(self.samples)
+
     def __getitem__(self, idx):
-        img_name = self.image_names[idx]
-        image_path = f'{self.img_dir}/{img_name}.png'
-        image = torchvision.io.read_image(image_path)[0:3].float() / 255.0
+        group_id, local_idx = self.samples[idx]
+        group = self.data_groups[group_id]
 
-        steer_angle = self.steer_angles[idx]
-
-        return image, steer_angle
-
-    def train_test_split(self, test_size=0.2, random_state=42):
-            indices = list(range(len(self.image_names)))
-            self.train_indices, self.test_indices = train_test_split(indices,
-                                                        test_size=test_size,
-                                                        random_state=random_state)
-        
-    def get_data_by_indices(self, indices):
         images = []
-        steer_angles = []
-        for idx in indices:
-            image, steer_angle = self.__getitem__(idx)
+        # for i in range(self.sequence_length):
+        #     img_name = group['image_names'][local_idx + i]
+        for i in range(self.sequence_length):
+            img_index = local_idx + i * self.sequence_length
+            img_name = group['image_names'][img_index]
+            image_path = os.path.join(group['img_dir'], f"{img_name}.png").replace(" ", "")
+            if not os.path.exists(image_path):
+                raise FileNotFoundError(f"Missing: {image_path}")
+            image = tv.transforms.functional.pil_to_tensor(Image.open(image_path).convert('RGB'))
+            image = self.normalizer(image / 255.0)
+            assert not torch.isnan(image).any(), f"NaN in image: {image_path}"
             images.append(image)
-            steer_angles.append(steer_angle)
-        return images, steer_angles
 
-    def get_train_data(self):
-        return self.get_data_by_indices(self.train['indices'])
-
-    def get_test_data(self):
-        return self.get_data_by_indices(self.test['indices'])
+        images = torch.stack(images, dim=0)
+        steer_angle = group['steer_angles'][local_idx + self.sequence_length * (self.sequence_length - 1)]
+        if isinstance(steer_angle, str) or np.isnan(steer_angle):
+            raise ValueError(f"Invalid steer angle at idx {idx}: {steer_angle}")
+        return images, steer_angle
 
 
 class Model(nn.Module):
     def __init__(self, output_size, units) -> None:
         super().__init__()
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        #encoder
-        self.encoder = Encoder()
-        self.input_size = self.encoder.fc_3.out_features
-        
+        # self.encoder = LanePretrainedResNet18Encoder('./tusimple_res18.pth')
+        self.encoder = EncoderResnet()
+        self.input_size = self.encoder.output_size
         self.output_size = output_size
         self.units = units
         self.rnn = LTC(self.input_size, AutoNCP(self.units, self.output_size), batch_first=True)
-        self.rnn.hx = None
 
-        self.encoder.to(self.device)
-        self.rnn.to(self.device)
+    def forward(self, x, hx=None, timespans=None):
+        if not isinstance(x, torch.Tensor):
+            x = torch.stack(list(x), dim=0).permute(1, 0, 2, 3, 4)
 
-    def extract_features(self, image : torch.Tensor):
-        return self.encoder(image.to(device=self.device, dtype=torch.float32))
+        batch_size, seq_len, c, h, w = x.shape
+        frames = torch.reshape(x, (batch_size * seq_len, c, h, w))
+        features = self.encoder(frames)
+        features = torch.reshape(features, (batch_size, seq_len, *features.shape[1:]))
+        if hx is not None:
+            hx = hx.detach()
 
-    def forward(self, input, hx=None, timespans=None):
-        if hx is None:
-            hx = self.rnn.hx
-        features = self.extract_features(input)
-        predicted_angle, self.rnn.hx = self.rnn(features, hx, timespans)
-        return predicted_angle, self.rnn.hx
-    
-    def save_model(self, path):
-        torch.save(self.state_dict(), path)
-    
-    def load_model(self, state_dict_path):
-        self.load_state_dict(torch.load(state_dict_path))
-
-    def train(self):
-        self.encoder.train(True)
-        self.rnn.train(True)
-
-    def eval(self):
-        self.encoder.eval()
-        self.rnn.eval()
+        predicted_angle, _hx = self.rnn(features, hx, timespans)
+        return predicted_angle, _hx
 
 
-class Trainer:
-    def __init__(self, model, 
-                 loss_func, 
-                 optimizer, 
-                 annotations_file='out/Town01_opt/data.txt', 
-                 img_dir='out/Town01_opt',
-                 test_size=0.2,
-                 random_state=42):
+class DrivingDataModule(pl.LightningDataModule):
+    def __init__(self, dataset: CustomDataset, batch_size: int = 16):
+        super().__init__()
+        self.dataset = dataset
+        self.batch_size = batch_size
+
+    def setup(self, stage=None):
+        # Assumes dataset.train_test_split() was called before instantiating the DataModule
+        self.train_dataset = Subset(self.dataset, self.dataset.train_indices)
+        self.val_dataset = Subset(self.dataset, self.dataset.test_indices)
+
+    def train_dataloader(self):
+        return DataLoader(self.train_dataset, batch_size=self.batch_size, shuffle=True, drop_last=True)
+
+    def val_dataloader(self):
+        return DataLoader(self.val_dataset, batch_size=self.batch_size, shuffle=False, drop_last=True)
+
+
+class DrivingModelModule(pl.LightningModule):
+    def __init__(self, model, loss_func, optimizer_cls, optimizer_kwargs, stb_weights):
+        super().__init__()
         self.model = model
         self.loss_func = loss_func
-        self.optimizer = optimizer
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.Dataset = TrainingDataset(annotations_file=annotations_file,
-                                       img_dir=img_dir)
-        self.test_size = test_size
-        self.random_state = random_state
-        
-    def train_one_epoch(self, epoch, logger=None, batch_size=1):
-        running_loss = 0.0
-        last_loss = 0.0
+        self.optimizer_cls = optimizer_cls
+        self.optimizer_kwargs = optimizer_kwargs
+        self.stb_weights = stb_weights
 
-        self.Dataset.train_test_split(test_size=self.test_size, random_state=self.random_state)
+    def on_fit_start(self):
+        for param in self.model.encoder.parameters():
+            param.requires_grad = True
+            # param.requires_grad = False
+        for param in self.model.rnn.parameters():
+            param.requires_grad = True
 
-        train_dl = utils.data.DataLoader(self.Dataset,
-                                         batch_size=batch_size,
-                                         sampler=torch.utils.data.SubsetRandomSampler(self.Dataset.train_indices))
-        idx = 0
-        for image, true_angle in tqdm(train_dl, desc='Train'):
-            true_angle_dev = torch.Tensor([ [true_ang, 0, 0, 0] for true_ang in true_angle])
-            
-            image = image.to(self.device, dtype=torch.float32, non_blocking=True)
-            true_angle_dev = true_angle_dev.to(self.device, dtype=torch.float32, non_blocking=True)
-            
-            self.optimizer.zero_grad()
-            pred_angle, self.model.rnn.hx = self.model(image)
-            self.model.rnn.hx = self.model.rnn.hx.detach()
-            loss = self.loss_func(pred_angle[0], true_angle_dev)
-            
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 5)
-            self.optimizer.step()
-            running_loss += loss.item()
-            if idx % 1000 == 999:
-                last_loss = running_loss / 1000 # loss per batch
-                with open('training.log', 'a+') as f:
-                    f.write(f'\tbatch {idx/1000} loss: {last_loss}\n')
-                tb_x = epoch * len(self.Dataset.train_indices) + idx + 1
-                logger.add_scalar('Loss/train', last_loss, tb_x)
-                running_loss = 0.0
-            idx += 1
-        return last_loss
+    def forward(self, x, hx=None, timespans=None):
+        return self.model(x, hx=hx, timespans=timespans)
 
-    def train(self, epochs=10, batch_size=1):
-        
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        writer = SummaryWriter('runs/fashion_trainer_{}'.format(timestamp))
-        best_val_loss = float('inf')
-        for epoch in range(epochs):
-            print(f'Epoch {epoch}')
-            with open('training.log', 'a+') as f:
-                f.write(f'Epoch {epoch}/{epochs} started\n')
+    def training_step(self, batch, batch_idx):
+        self.log("Model_units", self.model.units)
+        current_lr = self.trainer.optimizers[0].param_groups[0]['lr']
+        self.log("lr", current_lr, on_epoch=True, prog_bar=True)
+        data, true_angle = batch
 
-            self.model.train()
-            train_loss = self.train_one_epoch(epoch, writer, batch_size=batch_size)
-            
-            running_vlos = 0.0
-            self.model.eval()
-            test_dl = utils.data.DataLoader(self.Dataset,
-                                         batch_size=batch_size,
-                                         sampler=torch.utils.data.SubsetRandomSampler(self.Dataset.test_indices))
-            with torch.no_grad():
-                for vinputs, vlabels in tqdm(test_dl, desc='Test'):
-                    vinputs = vinputs.to(self.device)
-                    vlabels = torch.Tensor([ [vlabel, 0, 0, 0] for vlabel in vlabels])
-                    vlabels = vlabels.to(self.device)
-                    vinputs = vinputs.float()
-                    vlabels = vlabels.float()
-                    voutputs, _ = self.model(vinputs)
-                    vloss = self.loss_func(voutputs[0], vlabels)
-                    running_vlos += vloss
-            validation_loss = running_vlos / len(self.Dataset.test_indices)
-            print(f'LOSS train {train_loss} valid {validation_loss}')
-            if validation_loss < best_val_loss:
-                self.model.save_model(f'model/epoch_{epoch}_{validation_loss}.pth')
-                best_val_loss = validation_loss
-            # Log the running loss averaged per batch
-            # for both training and validation
-            writer.add_scalars('Training vs. Validation Loss',
-                    { 'Training' : train_loss, 'Validation' : validation_loss }, 
-                    epoch)
-            writer.flush()
-            with open('training.log', 'a+') as f:
-                f.write(f'Epoch {epoch}/{epochs} : LOSS train {train_loss} valid {validation_loss}\n')
+        # Target padding
+        true_angle_dev = torch.zeros((true_angle.shape[0], 4), device=self.device)
+        true_angle_dev[:, 0] = true_angle
+        # print(data)
+        predictions, _ = self(data, hx=None)
+
+        # Loss computation
+        pred_steer = predictions[:, -1, 0]
+        steer_loss = self.loss_func(pred_steer, true_angle_dev[:, 0])
+        # throttle_loss = self.loss_func(predictions[:, -1, 2], true_angle_dev[:, 2])
+        # brake_loss = self.loss_func(predictions[:, -1, 3], true_angle_dev[:, 3])
+
+        loss = (
+            steer_loss * self.stb_weights[0] #+
+            # throttle_loss * self.stb_weights[1] +
+            # brake_loss * self.stb_weights[2]
+        )
+
+        if torch.isnan(loss) or torch.isinf(loss):
+            self.print("Got NaN loss")
+            self.print(f"Prediction: {pred_steer}")
+            self.print(f"Target: {true_angle_dev[:, 0]}")
+            raise ValueError("NaN loss")
+
+
+        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True)
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        data, true_angle = batch
+
+        predictions, _ = self(data, hx=None)
+        pred_steer = predictions[:, -1, 0]
+        steer_loss = self.loss_func(pred_steer, true_angle)
+
+        val_loss = steer_loss * self.stb_weights[0]
+
+        self.log("val_loss", val_loss, on_step=False, on_epoch=True, prog_bar=True)
+        return val_loss
+
+    def configure_optimizers(self):
+        optimizer = self.optimizer_cls(self.parameters(), **self.optimizer_kwargs)
+        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        #     optimizer,
+        #     mode='min',
+        #     factor=0.5,
+        #     patience=3,
+        #     min_lr=1e-6
+        # )
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer, 
+            T_max=15,
+            eta_min=1e-6
+        )
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {
+                "scheduler": scheduler,
+                "monitor": "val_loss",
+                "interval": "epoch",
+                "frequency": 1
+            }
+        }
