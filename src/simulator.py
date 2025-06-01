@@ -1,6 +1,5 @@
 import carla
 import numpy as np
-import random
 from collections import deque
 
 import torch
@@ -18,13 +17,9 @@ class SensorsData:
     
     def update_sensor_data(self, data, sensor_name:str = 'camera_front'):
         if sensor_name.find('camera') != -1:
-            # if self.current_load[sensor_name] == self.sequence_len:
-            # self.sensors[sensor_name].popleft()
-                # del to_delete
             self.sensors[sensor_name].append(torch.from_numpy(data).permute(0, 3, 1, 2))
         else:
             self.sensors[sensor_name].append(data)
-        # print(self.sensors[sensor_name].shape)
 
     def get_sensor_data(self, sensor_name:str = 'camera_front'):
         return self.sensors[sensor_name]
@@ -114,7 +109,6 @@ class Simulator:
         
         data = get_image_data(image)
         self.sensors_data.update_sensor_data(data, 'camera_front')
-        # print(self.sensors_data.get_sensor_data(sensor_name='camera_front'))
         return data
 
     def start_camera_stream(self, callback = None):

@@ -36,11 +36,9 @@ class NCPAgent(BasicAgent):
         if dump_data:
             true_control = super().run_step()
             return true_control, None, raw_data
-        # print(id(raw_data))
         with torch.no_grad():
             print(len(raw_data), len(list(raw_data)[-(self.sequence_len ** 2)::self.sequence_len]))
             data = torch.stack(list(raw_data)[-(self.sequence_len ** 2 )::self.sequence_len]).to(self.device, dtype=torch.float32)
-            # model_control, self.hx = self.model(data, self.hx)
             model_control, _ = self.model(data, self.hx)
         true_control = super().run_step()
 

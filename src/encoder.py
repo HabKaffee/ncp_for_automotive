@@ -3,7 +3,6 @@ import torchvision.models as models
 import torch.nn.functional as F
 import numpy as np
 
-# Resnet without separation
 class EncoderResnet(torch.nn.Module):
     def __init__(self, 
                  model_fn : models.ResNet = models.resnet18, 
@@ -41,6 +40,9 @@ class EncoderResnet(torch.nn.Module):
         for param in self.model.parameters():
             param.requires_grad = trainable
 
+
+
+# get pretrained model from https://github.com/cfzd/Ultra-Fast-Lane-Detection-v2
 class LanePretrainedResNet18Encoder(torch.nn.Module):
     def __init__(self, checkpoint_path):
         super().__init__()

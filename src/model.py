@@ -16,12 +16,7 @@ import pytorch_lightning as pl
 from torch.nn import functional as F
 from torch.utils.data import DataLoader, Subset
 
-from sklearn.model_selection import train_test_split
 from PIL import Image
-
-from math import ceil
-
-# get pretrained model from https://github.com/cfzd/Ultra-Fast-Lane-Detection-v2
 
 class CustomDataset(Dataset):
     def __init__(self, datasets, sequence_length=10):
@@ -41,7 +36,6 @@ class CustomDataset(Dataset):
             df.dropna(inplace=True)
 
             df['Steer_angle'] = ((df['Steer_angle'] + 1) / 2) * 140 - 70
-            # print(df['Steer_angle'].describe())
             image_names = df['Image'].tolist()
             steer_angles = df['Steer_angle'].tolist()
             img_dir = dataset['img_dir']
@@ -54,37 +48,12 @@ class CustomDataset(Dataset):
 
             self.data_groups.append(group)
 
-            # num_sequences = len(image_names) - sequence_length + 1
-            # for local_idx in range(num_sequences):
-            #     self.samples.append((group_id, local_idx))
-
             max_start = len(image_names) - sequence_length * (sequence_length - 1)
             for local_idx in range(max_start):
                 self.samples.append((group_id, local_idx))
 
         self.train_indices = []
         self.test_indices = []
-
-    # def _train_test_split(self, test_size=0.2, random_state=42):
-    #     self.train_indices = []
-    #     self.test_indices = []
-
-    #     stride = ceil(self.sequence_length)
-
-    #     for group_id, group in enumerate(self.data_groups):
-    #         image_names = group['image_names']
-    #         max_start = len(image_names) - self.sequence_length + 1
-    #         valid_local_indices = list(range(0, max_start, stride))
-
-    #         global_indices = []
-    #         for local_idx in valid_local_indices:
-    #             global_idx = self.samples.index((group_id, local_idx)) if (group_id, local_idx) in self.samples else None
-    #             if global_idx is not None:
-    #                 global_indices.append(global_idx)
-
-    #         train_ids, test_ids = train_test_split(global_indices, test_size=test_size, random_state=random_state)
-    #         self.train_indices.extend(train_ids)
-    #         self.test_indices.extend(test_ids)
 
     def assign_train_val_by_dataset(self, val_dataset_index):
         self.test_indices = [i for i, (gid, _) in enumerate(self.samples) if gid == val_dataset_index]
@@ -100,8 +69,6 @@ class CustomDataset(Dataset):
         group = self.data_groups[group_id]
 
         images = []
-        # for i in range(self.sequence_length):
-        #     img_name = group['image_names'][local_idx + i]
         for i in range(self.sequence_length):
             img_index = local_idx + i * self.sequence_length
             img_name = group['image_names'][img_index]
@@ -152,7 +119,6 @@ class DrivingDataModule(pl.LightningDataModule):
         self.batch_size = batch_size
 
     def setup(self, stage=None):
-        # Assumes dataset.train_test_split() was called before instantiating the DataModule
         self.train_dataset = Subset(self.dataset, self.dataset.train_indices)
         self.val_dataset = Subset(self.dataset, self.dataset.test_indices)
 
@@ -230,13 +196,6 @@ class DrivingModelModule(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = self.optimizer_cls(self.parameters(), **self.optimizer_kwargs)
-        # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        #     optimizer,
-        #     mode='min',
-        #     factor=0.5,
-        #     patience=3,
-        #     min_lr=1e-6
-        # )
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             optimizer, 
             T_max=15,

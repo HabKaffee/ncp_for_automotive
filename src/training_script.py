@@ -13,11 +13,8 @@ def train_model_with_parameters(epochs_to_train:int,
                                 output_size:int,
                                 units:int,
                                 sequence_length:int,
-                                # test_size:float,
                                 lr:float,
                                 device:str,
-                                # data_path:str,
-                                # annotations_file:str,
                                 ):
     print(device)
     model_dir = f'model/max_ep_{epochs_to_train}_units_{units}_seq_{sequence_length}_lr_{lr}'
@@ -33,12 +30,9 @@ def train_model_with_parameters(epochs_to_train:int,
 
     dataset = CustomDataset(
         datasets=datasets,
-        # annotations_file=annotations_file,
-        # img_dir=data_path,
         sequence_length=sequence_length
     )
 
-    # dataset.train_test_split(test_size=test_size, random_state=42)
     dataset.assign_train_val_by_dataset(val_dataset_index=validation_ds_idx)
 
     num_workers = max(os.cpu_count() - 2, 0)
@@ -115,8 +109,6 @@ def main():
                         help='Number of units in the LTC RNN layer.')
     parser.add_argument('--sequence_length', type=int, default=10,
                         help='Default sequence length for RNN.')
-    # parser.add_argument('--test_size', type=float, default=0.5,
-    #                     help='Test data size (from 0 to 1).')
     parser.add_argument('--lr', type=float, default=0.001,
                         help='Learning rate for Adam optimizer')
     
@@ -124,17 +116,7 @@ def main():
     parser.add_argument('--device', type=str, default='cuda',
                         help='Device to use (cuda or cpu).')
 
-    # parser.add_argument('--data_path', type=str, default='out/Town01_opt/',
-    #                     help='Path to the folder containing images.')
-    # parser.add_argument('--annotations_file', type=str, default='out/Town01_opt/data.txt',
-    #                     help='Path to the CSV/txt file containing annotations.')
-
-    # parser.add_argument('--distinct_folder', type=str, default='placeholder',
-    #                     help="folder to distinct experiments")
     args = parser.parse_args()
-    # if args.distinct_folder == 'placeholder':
-    #     print('Provide folder name for experiment')
-    #     exit(1)
 
     train_model_with_parameters(
         epochs_to_train = args.epochs,
@@ -142,12 +124,8 @@ def main():
         output_size = args.output_size,
         units = args.units,
         sequence_length = args.sequence_length,
-        # test_size = args.test_size,
         lr=args.lr,
         device = args.device,
-        # data_path = args.data_path,
-        # annotations_file = args.annotations_file,
-        # folder=args.distinct_folder
     )
 
 if __name__ == "__main__":
